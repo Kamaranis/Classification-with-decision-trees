@@ -1,0 +1,1577 @@
+---
+title: "Classification with decision trees"
+author: "Anton Barrera Mora (me@antonio-barrera.cyou)"
+date: "June 2023"
+output:
+  github_document:
+    preserve_yaml: true
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 3
+    includes:
+      in_header: p_brand.html
+editor_options: 
+  markdown: 
+    wrap: sentence
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r librerias y paquetes, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Carga de librerias en segundo plano
+if(!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if(!require('dplyr')) install.packages('dplyr'); library('dplyr')
+if (!require('janitor')) install.packages('janitor'); library(janitor)
+if(!require('magrittr')) install.packages('magrittr'); library('magrittr')
+```
+
+# Introduction
+
+We will address the creation of a supervised data mining project.
+We will use a classification algorithm, specifically the decision tree model.
+We will rely on the 'German Credit' dataset from @ucimach as our reference.
+We will consider the 'default' variable as an indicator and label for credit defaults.
+This is a classification problem because the outcome is a discrete variable: whether credits are paid or not, with only two classes.
+
+Decision trees and random forests can be employed for this type of classification problem, as well as for supervised regression problems.
+They can handle non-linear relationships and interactions between variables well, helping to understand which factors are driving the outcomes, in this case, the factors present in credit defaults.
+
+# Phase 1: Understanding the Business
+
+## Problem:
+
+The requirement is to have the ability to predict which customers, based on certain variables, may default on credit in case of granting a loan.
+
+## Data Collection:
+
+We will base the project on the "[Statlog (German Credit Data) Data Set](https://archive.ics.uci.edu/ml/datasets/statlog+(german+credit+data))." The dataset from the year 1994 classifies individuals described by a set of attributes to determine if they are a good or bad credit risk.
+It contains a total of 1000 records with around 20 variables, presented in two formats, one of which is numeric only, including a cost matrix.
+This dataset is publicly available.
+Additionally, the dataset is accompanied by[documentatio](https://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.doc)n that explains the different attributes.
+
+# Phase 2: Understanding the Data
+
+## Initial Analysis
+
+We start the work by conducting an analysis of the data and the different variables present in the dataset.
+This initial exploration will give us insights into the structure of the dataset, the types of variables present, and an overview of their distribution and summary statistics.
+
+### Exploring the dataset
+
+Loading the dataset:
+
+```{r carga del dataset, echo=TRUE, message=FALSE, warning=FALSE}
+
+credit <- read.csv("credit.csv", header=T,sep = ",")
+attach(credit) # Agregamos el fichero al entorno de trabajo para poder llamar a las variables mas facilmente, aunque este metodo tiene varios problemas
+```
+
+We will take a first look at the data to see what variables are present:
+
+```{r glimpse1, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Observamos la informacion de las variables
+
+glimpse(credit)
+```
+
+We can see that there are a large number of categorical variables.
+We proceed with a detailed analysis:
+
+#### Description of attributes or variables:
+
+-   Checking_balance \<chr\>.
+    It refers to the status of the checking account for the loan in Deutsche Mark (DM).
+    It is a categorical variable with four possible categories:
+
+    -   Less than 0 DM
+
+    -   Between 0 and 200 DM
+
+    -   More than 200 DM or salary has been deposited into this account for at least 1 year
+
+    -   No checking account
+
+Although decision trees can handle categorical variables, in this case, we will convert it into dummy variables based on whether there is a balance or not in order to make the model easier to interpret.
+
+-   months_loan_duration \<int\>.
+    It refers to the duration of the loan repayment in months.
+    It is a numerical variable with a wide range.
+    In this case, we will scale the variable.
+
+-   credit_history \<chr\>.
+    It is a categorical variable that describes the credit history of the loan applicant.
+    It does not require transformation, but we will recode the levels.
+
+-   purpose \<chr\>.
+    This variable answers the question: What is the purpose of the credit application?
+    It is another categorical variable.
+    In this case, we will convert it into a dummy variable that answers the question: Is it for leisure?
+    Where 0 is false and 1 is true.
+
+-   amount \<int\>.
+    The granted credit amount.
+    The range of values is very wide, so we will normalize the variable to ensure that the attributes have a similar range of values.
+
+-   savings_balance \<chr\>.
+    It refers to the amount in a savings account, distinguishing it from a checking account.
+    Like attribute 1, it may be important for predicting whether someone will default on a loan or have difficulties with loan repayments.
+    We will use the same strategy as attribute 1.
+
+-   employment_length \<chr\>.
+    This attribute refers to the length of employment in the current job.
+    It is an ordinal variable.
+    We will encode the categories as integers.
+
+-   installment_rate \<int\>.
+    It refers to the percentage of disposable income that is allocated to loan installments.
+    The dataset authors define this attribute as "Installment rate in percentage of disposable income".
+    It takes values from 1 to 4, which seem to indicate ranges or categories instead of literal percentages.
+    We understand that 1 represents a low percentage of disposable income allocated to loan installments, and 4 represents a high percentage of disposable income available for loan installments.
+    Therefore, a higher value in "installment_rate" indicates a higher percentage of disposable income dedicated to loan installments, which could increase the risk of default if financial difficulties arise.
+    We will keep the values as they are.
+
+-   personal_status \<chr\>.
+    It refers to marital status.
+    There is a risk of gender bias here, as it is scientifically questionable and ethically reproachable to assume that women or men are of a certain creditworthy nature based on their gender.
+    This variable presents many ethical problems, and we will choose to exclude it.
+
+-   other_debtors \<chr\>.
+    Other debtors refer to the presence of guarantors.
+    We will recode the levels.
+
+-   residence_history \<int\>.
+    Reviewing the dataset documentation, we observe that it refers to the length of time the person has been residing in the current residence.
+    It is not very relevant considering that attribute number 14 refers to the aspect of property ownership of the residence.
+    Therefore, we will choose not to consider it.
+
+-   property \<chr\>.
+    It refers to the types of property owned by the loan borrower.
+    It has specific categories such as real estate, building society savings agreement/life insurance, car or other, and unknown/no property.
+    It is a categorical variable.
+    We are interested in the differences between customers who have different properties, so we will create dummy variables for each property type.
+
+-   age \<int\>.
+    Age is a numerical variable.
+    Classifying individuals based on their age is clearly unethical and discriminatory, so we will exclude this variable from the dataset.
+
+-   installment_plan \<chr\>.
+    It refers to the existence of other installment plans or loans that the credit applicant may have, in addition to the loan being applied for.
+    Originally, it refers to whether it is with a bank, a store, or no installment plan.
+    In this case, we will convert it into a new dummy variable.
+
+-   housing \<chr\>.
+    It refers to the type of housing and its ownership.
+    In this case, we will create dummy variables for each category.
+
+-   existing_credits \<int\>.
+    This attribute refers to the number of credits the person has with the bank.
+    This attribute raises serious doubts since there is already a similar attribute (14).
+    The documentation does not clarify whether it refers to a credit already paid or in progress.
+    We choose to keep it because the formulation of the attribute name is in the present tense, so we assume that they are credits already requested, in progress, and pending payment.
+    We will keep the values as they are.
+
+-   default \<int\>.
+    The target variable.
+    It is encoded as 1 or 2.
+    We will modify it to 0 and 1.
+
+-   telephone \<chr\>.
+    Whether the client has a telephone installed or not can be an independent variable to consider when assessing economic capacity.
+    We will convert it into another dummy variable, although in the present day, the possession of a telephone in a household may not be very representative of its economic potential.
+
+-   foreign_worker \<chr\>.
+    It refers to whether the client who enjoyed the credit was a foreign worker or not.
+    The inclusion of certain characteristics, such as nationality, race, gender, religion, sexual orientation, among others, in credit decision models has been the subject of significant ethical and legal debate.
+    This is a case specific to the German society model, where this variabl may have made sense in its time.
+    From a legal perspective, legislation varies depending on the country.
+    In the United States, the "**Equal Credit Opportunity Act**" prohibits discrimination in any aspect of a credit transaction based on race, color, religion, national origin, sex, marital status, age, among others.
+    The ethics are questionable, so we will choose to remove it from the model.
+
+-   dependents \<int\>.
+    It refers to the number of dependents the client has.
+    We choose to keep it in its current integer format.
+
+-   job \<chr\>.
+    Skilled worker or not.
+    It contains categories related to the legal status of the worker in the country.
+    We will create dummy variables for each category.
+
+At this point, we would like to clarify several ethical aspects that arise from the data.
+The inclusion of many of the variables present - Age, Worker's origin, Marital status, Gender - borders on illegality - if not directly - according to current legislation in many parts of the world.
+They are clearly deserving of ethical considerations.
+We have chosen not to include them.
+In this case, it is a work for educational purposes, but in a real-life scenario, we would refuse to include this type of characteristics that only serve to bias and support discriminatory policies.
+
+We continue the analysis in search of 'NA' values and the distribution of the variables:
+
+```{r summary1, echo=TRUE, message=FALSE, warning=FALSE}
+
+#Buscamos NA y estudiar la distribucion de las variables
+summary(credit)
+
+perdidos <-credit[is.na(credit),]
+print(perdidos)
+
+```
+
+We observe the characteristics and how the variables are distributed.
+At this point, it is interesting to highlight some information such as:
+
+-   The loan duration is centered around an average of 18 months.
+
+-   The granted amounts revolve around an average of 3271 DM.
+
+-   On average, customers had only one credit with the institution.
+
+-   And, regarding the customer prototype, they tend to have a dependent family member.
+
+We ensure that there are no blank values.
+
+```{r blank1, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Encuentra filas con al menos un blanco
+blank_rows <- rowSums(credit == "") > 0
+
+# Imprime las filas con al menos un blanco
+print("Blancos")
+print(credit[blank_rows, ])
+
+# Observamos las dimensiones del dataset (debe ser 1000 / 21)
+dim(credit)
+```
+
+We can confidently state that the dataset does not have any infinite or blank values.
+However, as part of the data preparation process, we will need to remove and transform variables as previously mentioned.
+
+## Dataset preparation
+
+We will exclude attributes that we are not considering, such as marital status, residence history, age, and foreign worker status.
+
+1.  We will exclude attributes that we will not consider such as marital status, length of residence, age and whether you are a foreign worker:
+
+```{r eliminando atributos, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Eliminamos las columnas
+
+credit <- select(credit, -c(personal_status, residence_history, age, foreign_worker))
+```
+
+2.  We are going to convert checking_balance\<chr\> into a dummie. The current account balance can be a relevant information when it comes to whether defaults occur or not, so we are interested in generating dummie variables for each category:
+
+```{r checking_balance, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Antes que nada, convertimos el atributo en factor:
+credit$checking_balance <- as.factor(credit$checking_balance)
+
+# Convertimos la variable 'checking_balance' en variables dummy
+dummy_vars <- model.matrix(~checking_balance -1, data = credit)
+
+#Convertimos el resultado en df y asignamos nombres a las columnas apropiadas
+dummy_df <- as.data.frame(dummy_vars)
+dummy_df[] <- lapply(dummy_df, as.integer) # tiene la fea costumbre de convertir a dbl, rectificamos a int 
+colnames(dummy_df) <- levels(credit$checking_balance)
+
+# Forzamos el nombre que a nosotros nos interesa, mas descriptivo:
+names(dummy_df) <- c("checking_balance_lt_0", "checking_balance_gt_200", "checking_balance_1_200", "checking_balance_unknown")
+
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, dummy_df)
+
+# Excluimos el atributo 'checking_balance':
+credit$checking_balance <- NULL
+
+# visualizamos el dataset o df:
+str(credit)
+names(credit)
+
+```
+
+And we check that the changes have been made correctly.
+
+3.  months_loan_duration\<int\>. The expected amortisation of the loan in months. We will scale the variable:
+
+```{r escalado de months_loan_duration, echo=TRUE, message=FALSE, warning=FALSE}
+
+#Escalamos la variable months_loan_duration
+credit_months_loan_z <- scale(credit$months_loan_duration)
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, credit_months_loan_z)
+
+# Renombramos
+# credit <- credit %>% rename(credit_scale_z = credit_escale)
+
+# Excluimos el atributo 'months_loan_duration':
+credit$months_loan_duration <- NULL
+
+# Visualizamos la tabla
+glimpse(credit)
+```
+
+We observe that everything is correct and proceed.
+
+4.  credit_history \<chr\>. Describes the credit history of the loan applicant. We will recode the levels to make it more understandable:
+
+-   critical: This category refers to applicants who have a history of critical credit behavior, such as not paying other credits that are not with the bank in question.
+
+-   delayed: This category refers to applicants who have had delays in the payment of their credits in the past.
+
+-   fully repaid: Refers to applicants who have fully repaid their credits in the past.
+
+-   fully repaid this bank: This category refers to applicants who have fully repaid their credits at the bank in question.
+
+-   repaid: Refers to applicants who have repaid their credits to date.
+
+```{r recodificando credit_history, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Recodificamos la variable
+credit$credit_history <- recode(credit$credit_history, 
+                                "critical" = "Critical", 
+                                "delayed" = "PaymentDelayed", 
+                                "fully repaid" = "FullyRepaid", 
+                                "fully repaid this bank" = "FullyRepaidThisBank", 
+                                "repaid" = "Repaid")
+
+# Convertimos la variable a factor
+credit$credit_history <- as.factor(credit$credit_history)
+
+# Visualizamos la tabla
+glimpse(credit)
+```
+
+We observe that the categories have the desired format.
+We continue with the next variable:
+
+5.  purpose\<chr\>. What is the purpose of the loan application? This is another categorical variable. In this case, we will convert it into a dummy variable. Initially, we had planned to convert it into a binary variable, but at this point, it could be interesting to know which type of consumer loans would generate a higher default rate. Therefore, we create new attributes for each category.
+
+```{r dummy purpose, echo=TRUE, message=FALSE, warning=FALSE}
+
+#Creamos variables dummy para este atributo, convertimos el atributo en factor:
+credit$purpose <- as.factor(credit$purpose)
+
+# Convertimos la variable 'purpose' en variables dummy
+dummy_vars <- model.matrix(~ purpose -1, data = credit) # excluimos la primera categoría como referencia
+
+#Convertimos el resultado en df y asignamos nombres a las columnas apropiadas
+dummy_df <- as.data.frame(dummy_vars)
+dummy_df[] <- lapply(dummy_df, as.integer) # como convierte por defecto a dbl, vamos a cambiar a int
+colnames(dummy_df) <- levels(credit$purpose)
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, dummy_df)
+
+# Excluimos el atributo 'checking_balance':
+credit$purpose <- NULL
+
+# Normalizamos los nombres de atributos:
+credit <- credit %>% clean_names()
+
+
+# visualizamos el dataset o df:
+glimpse(credit)
+
+#Visualizamos las variables:
+names(credit)
+```
+
+And indeed, the changes have gone in the desired direction.
+
+6.  amount\<int\>. The amount of credit granted. Let's normalise to get the attributes to have a similar range of values in standard scores.
+
+```{r z amount, echo=TRUE, message=FALSE, warning=FALSE}
+
+#Escalamos la variable amount
+amount_z <- scale(credit$amount)
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, amount_z)
+
+
+# Excluimos el atributo 'amount':
+credit$amount <- NULL
+
+# Visualizamos la tabla
+glimpse(credit)
+
+```
+
+We have effectively converted the attribute to its z-scores.
+
+7.  savings_balance\<chr\>. Savings account. Like attribute 1 it can be important for predicting whether someone is going to default on a loan or have difficulty paying repayments. We will use the same strategy as with attribute 1.
+
+```{r dummy savings_balance, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Convertimos el atributo en factor:
+credit$savings_balance <- as.factor(savings_balance)
+
+# Convertimos la variable 'savings_balance' en variables dummy
+dummy_vars <- model.matrix(~savings_balance -1, data = credit) # -1 para sin categoria de referencia
+
+#Convertimos el resultado en df y asignamos nombres a las columnas apropiadas
+dummy_df <- as.data.frame(dummy_vars)
+dummy_df[] <- lapply(dummy_df, as.integer) # convertimos a int 
+colnames(dummy_df) <- levels(credit$savings_balance)
+
+# Forzamos el nombre que a nosotros nos interesa, mas descriptivo:
+names(dummy_df) <- c("savings_bal_lt_100", "savings_bal_gt_1000", "savings_bal_101_500", "savings_bal_501_1000", "savings_bal_unknown")
+
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, dummy_df)
+
+# Excluimos el atributo 'checking_balance':
+credit$savings_balance <- NULL
+
+# visualizamos el dataset o df:
+str(credit)
+names(credit)
+```
+
+The changes have indeed taken place as expected, we continue with the eighth variable.
+
+8.  employment_length\<chr\>. Length of service in the job. This is an ordinal variable in which we will code the categories as integers.
+
+```{r ordinal employment_length, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Codificando ordinales
+credit$employment_length <- factor(credit$employment_length, 
+                                 levels = c("unemployed", "0 - 1 yrs", "1 - 4 yrs", "4 - 7 yrs", "> 7 yrs"),
+                                 labels = c(0, 1, 2, 3, 4), 
+                                 ordered = TRUE)
+# Visualizamos los registros de la columna que hemos modificado
+head(credit$employment_length, 4)
+```
+
+We observe that the levels have been modified according to our intentions: 0 = unemployed, 1 = 0-1 yrs, 2 = 1-4 yrs, 3 = 4-7 yrs, 4 = \> 7 yrs.
+
+9.   installment_rate\<int\>. This refers to the percentage of disposable income allocated to loan installments. It takes values from 1 to 4, which seem to indicate ranges or categories instead of literal percentages. Therefore, we understand that 1 represents a low percentage of disposable income for loan installment payments, and 4 represents a high percentage of disposable income available for loan payments. A higher value in "installment_rate" indicates a higher percentage of disposable income dedicated to loan installments. We will keep the values without modifications.
+10. personal_status\<chr\>. This refers to marital status. We excluded it at the beginning of this phase.
+11. other_debtors\<chr\>. This attribute refers to the presence of guarantors. It does not require any changes.
+12. residence_history\<int\>. It has been removed from the dataset.
+13. property\<chr\>. This refers to the types of property owned by a borrower. It is a categorical variable. We will create dummy attributes for each property type.
+
+```{r dummy property, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Convertimos el atributo en factor:
+credit$property <- as.factor(property)
+
+# Convertimos la variable 'savings_balance' en variables dummy
+dummy_vars <- model.matrix(~property -1, data = credit) # -1 para sin categoria de referencia
+
+#Convertimos el resultado en df y asignamos nombres a las columnas apropiadas
+dummy_df <- as.data.frame(dummy_vars)
+dummy_df[] <- lapply(dummy_df, as.integer) # convertimos a int 
+colnames(dummy_df) <- levels(credit$property)
+
+# Forzamos el nombre que a nosotros nos interesa, mas descriptivo:
+names(dummy_df) <- c("property_soc_savings", "property_other", "property_r_estate", "property_unk_none")
+
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, dummy_df)
+
+# Excluimos el atributo 'checking_balance':
+credit$property <- NULL
+
+# visualizamos el dataset o df:
+str(credit)
+names(credit)
+```
+
+We checked that everything is correct.
+We continue with the data preprocessing:
+
+14. age\<int\>. The age removed from the dataset.
+15. installment_plan\<chr\>. Other payment plans or loans that the credit applicant may have, in addition to the credit they are applying for. We will convert it into a new dummie variable but without creating new attributes, we will reduce it to yes or no, 0 and 1.
+
+```{r mutate installment_plan, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Manteniendo la misma columna, cambiamos a una variable binaria. Bancos y tiendas seria 1, el resto cero.
+credit <- mutate(credit,
+                 installment_plan = ifelse(installment_plan %in% c('bank', 'stores'), 1, 0))
+
+# visualizamos las modificaciones
+head(credit$installment_plan, 5)
+```
+
+16. housing\<chr\>. This refers to the usual residence and its ownership. In this case we will proceed to create dummy variables for each category.
+
+```{r dummy housing, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Convertimos el atributo en factor:
+credit$housing <- as.factor(housing)
+
+# Convertimos la variable 'housing' en variables dummy
+dummy_vars <- model.matrix(~housing -1, data = credit) # -1 para sin categoría de referencia
+
+#Convertimos el resultado en df y asignamos nombres a las columnas apropiadas
+dummy_df <- as.data.frame(dummy_vars)
+dummy_df[] <- lapply(dummy_df, as.integer) # convertimos a int 
+colnames(dummy_df) <- levels(credit$housing)
+
+# Forzamos el nombre que a nosotros nos interesa, mas descriptivo:
+names(dummy_df) <- c("housing_free", "housing_own", "housing_rent")
+
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, dummy_df)
+
+# Excluimos el atributo 'housing':
+credit$housing <- NULL
+
+# visualizamos el dataset o df:
+str(credit)
+names(credit)
+
+```
+
+And observe once again that the required dummy variables have been created.
+
+17. existing_credits\<int\>. This refers to the number of existing credits with the bank. We choose to keep it as is because the name of the variable is in the present tense, so we assume that these are credits that have already been applied for, in progress, and pending payment. We will keep the values unchanged.
+18. default\<int\>. The target variable. It is currently encoded as 1 or 2, and we will modify it to 0 and 1.
+
+```{r deafault -1, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Simplemente le restamos 1 para que se adecue a 0,1
+credit$default <- credit$default - 1
+
+# Observamos la variable
+head(default, 8)
+```
+
+Based on the documentation, assessing the information \@ucimacha :
+
+"This dataset requires use of a cost matrix (see below)\
+..... 1 2\
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--\
+1 0 1\
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--\
+2 5 0\
+(1 = Good, 2 = Bad)"
+
+We will assume that 0 represents 'good', indicating no payment issues or 0=FALSE, meaning no default, and 1=TRUE, indicating there were payment problems.
+
+Continuing with the data preprocessing:
+
+19. telephone\<chr\>. We will convert it to a dummy or binary variable.
+
+```{r bin telephone, echo=TRUE, message=FALSE, warning=TRUE}
+
+# Manteniendo la misma columna, cambiamos a una variable binaria, segun tenencia o no de telefono.
+credit <- mutate(credit,
+                 telephone = ifelse(telephone %in% c('yes'), 1, 0))
+
+# visualizamos las modificaciones
+glimpse(credit)
+```
+
+20. foreign_worker\<chr\>. Removed from the
+21. dependents\<int\>. Client dependents. No changes.
+22. job\<chr\>. Qualification. We will create dummy variables for each category.
+
+```{r job, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Convertimos el atributo en factor:
+credit$job <- as.factor(job)
+
+# Convertimos la variable 'job' en variables dummy
+dummy_vars <- model.matrix(~job -1, data = credit) # -1 para sin categoría de referencia
+
+#Convertimos el resultado en df y asignamos nombres a las columnas apropiadas
+dummy_df <- as.data.frame(dummy_vars)
+dummy_df[] <- lapply(dummy_df, as.integer) # convertimos a int 
+colnames(dummy_df) <- levels(credit$job)
+
+# Forzamos el nombre que a nosotros nos interesa, mas descriptivo:
+names(dummy_df) <- c("job_mang_self", "job_skill_emp", "job_unemp", "job_unskill")
+
+
+# Unimos las nuevas variables al df original
+credit <- cbind(credit, dummy_df)
+
+# Excluimos el atributo 'housing':
+credit$job <- NULL
+
+# visualizamos el dataset o df:
+str(credit)
+names(credit)
+
+```
+
+We make the last corrections on some attribute types to unify criteria in 'default' and 'telephone':
+
+```{r}
+
+# Convertimos la columna default en un integral
+credit$default <- as.integer(credit$default)
+
+# convertimos la columna telephone en numeros integrales
+credit$telephone <- as.integer(credit$telephone)
+
+# Y observamos la tabla definitiva sobre la que aplicaremos el algoritmo
+glimpse(credit)
+```
+
+## Visualising the dataset
+
+To improve the understanding of the data, we will use different visualisations to help us in this task.
+
+```{r libreriasII,echo=FALSE, message=FALSE, warning=FALSE }
+#Carga de librerías en segundo plano
+if(!require('ggpubr')) install.packages('ggpubr'); library('ggpubr')
+if(!require('grid')) install.packages('grid'); library('grid')
+if(!require('ggpubr')) install.packages('ggpubr'); library('ggpubr')
+if(!require('gridExtra')) install.packages('gridExtra'); library('gridExtra')
+if(!require('C50')) install.packages('C50'); library('C50')
+if(!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+if(!require('ggcorrplot')) install.packages('ggcorrplot'); library('ggcorrplot')
+if(!require('randomForest')) install.packages('randomForest'); library('randomForest')
+```
+
+```{r tema custom, echo=FALSE, message=FALSE, warning=FALSE}
+
+mi_tema <- function() {
+  theme(
+    panel.border = element_rect(colour = "black", 
+                                fill = NA, 
+                                linetype = 1),
+    panel.background = element_rect(fill = "white", 
+                                    color = 'grey50'),
+    panel.grid.major = element_line(colour = "grey80", linetype = "dashed"),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(colour = "black", 
+                             face = "plain", 
+                             family = "serif", 
+                             size = 12),
+    axis.title = element_text(colour = "black", 
+                              family = "serif", 
+                              face = "bold",
+                              size = 14),
+    axis.ticks = element_line(colour = "black"),
+    axis.ticks.length = unit(0.15, "cm"),
+    plot.title = element_text(size = 23, 
+                              hjust = 0.5, 
+                              family = "serif",
+                              face = "bold",
+                              margin = margin(0, 0, 10, 0)),
+    plot.subtitle=element_text(size=16, 
+                               hjust = 0.5,
+                               margin = margin(0, 0, 10, 0)),
+    plot.caption = element_text(colour = "black", 
+                             face = "italic", 
+                             family = "serif",
+                             size = 10,
+                             margin = margin(10, 0, 0, 0)),
+    legend.background = element_rect(fill = "white"),
+    legend.key = element_rect(fill = "white"),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.position = "right"
+  )
+}
+```
+
+We create different plots.
+We are interested in visualising how the "good" and "bad borrowers" are distributed, and we will do this by a histogram:
+
+```{r viz defaultI, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Distribucion de default
+ggplot(credit, aes(x= default)) + 
+    geom_bar(fill = 'skyblue') +
+    ## mi_tema() +
+    labs(x= "Estado de impagos", y= "Ocurrencia", title = "Distribucion de impagos en el credito Aleman") +
+    scale_x_continuous(breaks = c(0,1), labels = c("Sin impagos", "impagos"))
+```
+
+We can see that 30% of the loans ended in default.
+
+Next we will analyse the attributes 'amount_z' referring to the amount granted in the credit and the status of the defaults:
+
+```{r viz defaultII, echo=TRUE, message=FALSE, warning=FALSE}
+# Visualiamos importe e impagos
+ggplot(credit, aes(x = as.factor(default), y = amount_z)) + 
+  geom_boxplot(outlier.shape = NA) +
+  ## mi_tema() +
+  labs(x = "Estado de impagos", y = "Importe concedido", title = "Importe del credito por estado de los impagos") +
+  scale_x_discrete(labels = c("bueno", "malo"))
+```
+
+Everything seems to indicate that the granted amount for credits that resulted in defaults was higher.
+Observing the boxplots, we can see that there are outliers and variability in the granting of "bad" credits, as also indicated by the interquartile range.
+The median, represented by the horizontal black line within the box, further supports the claim that larger credits were granted.
+In conclusion, we can infer that the criteria for granting credits that resulted in defaults were less strict.
+
+We continue with the visual analysis, exploring various representations of the derived dummy variables such as "purpose," indicating the intended use of the credit by customers.
+
+```{r long_data puposeI, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Convertimos los datos al formato largo
+long_data <- credit %>%
+  select(education, furniture, radio_tv, repairs, retraining, others) %>%
+  pivot_longer(everything(), names_to = "Purpose", values_to = "Count")
+
+# Creamos un gráfico de barras para cada propósito
+ggplot(long_data, aes(x = factor(Count, levels = c(0, 1)), fill = Purpose)) + 
+  geom_bar(position = "dodge") +
+  ## mi_tema() +
+  facet_wrap(~ Purpose, scales = "free") +
+  labs(x = "propositos", y = "numero de casos", title = "Distribucion de los propositos del credito") +
+  scale_x_discrete(labels = c("Si", "No"))
+```
+
+The loans granted are concentrated in TV and radio, furniture and, to a lesser extent, education.
+
+```{r long_data puposeII, echo=TRUE, message=FALSE, warning=FALSE}
+
+# rehacemos las variables dummies de purpose
+long_data <- credit %>% 
+  pivot_longer(cols = c(education, furniture, radio_tv, repairs, retraining, others),
+               names_to = "purpose",
+               values_to = "value")
+
+# Guardamos solo las filas donde value == 1, es decir, donde el credito fue malo y tipos de credito
+long_data <- long_data[long_data$value == 1,]
+
+# Seleccionamos las columnas que necesitamos para la grafica
+long_data <- long_data[, c("default", "purpose")]
+```
+
+Using a grouped bar chart we are going to represent which types of loans have presented the highest delinquency rates:
+
+```{r viz tipo_creditos, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Creamos un gráfico de barras agrupado
+ggplot(long_data, aes(x = purpose, fill = as.factor(default))) +
+  geom_bar(position = "dodge") +
+  ## mi_tema() +
+  scale_fill_discrete(name = "Impago", labels = c("No", "Sí")) +
+  labs(x = "Propósito del crédito", y = "Número de créditos", 
+       title = "Distribución de impagos por propósito del crédito",
+       fill = "Impago") +
+  coord_flip()
+```
+
+This grouped bar chart confirms what we observed in the box plot: the two most frequent consumer loans - furniture and television/radio - also have the highest default rates.
+However, they are also the most requested loans.
+To further analyze this, we will calculate and visualize the default rates.
+
+```{r tasa_impagos, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Calculamos la tasa de impago
+default_rate <- long_data %>%
+  group_by(purpose) %>%
+  summarise(total = n(), defaults = sum(default == 1)) %>% #seleccionamos solo (1) y sumamos
+  mutate(default_rate = defaults / total) # dividimos los "1" o ocurrencias entre los totales
+
+# Visualizamos la tasa de impago
+ggplot(default_rate, aes(x = purpose, y = default_rate)) +
+  geom_col(fill = 'skyblue') +
+  labs(x = "Propósito del crédito", y = "Tasa de impago", 
+       title = "Tasa de impago por propósito del crédito") +
+  coord_flip()
+```
+
+And this contradicts our perception; it seems that education and other loans have the highest default rate, which would make some sense.
+
+Finally, to conclude the visualization section, we turn to a heatmap of the numeric variables "default," "amount_z," and "credit_months_loan_z." This heatmap will help us understand the relationship between loan repayment and loan amounts and duration.
+
+```{r heat_mapI, echo=TRUE, message=FALSE, warning=FALSE}
+
+# seleccionamos las variables de interés (relacion default, importe y meses)
+vars_de_interesI <- c("default", "amount_z", "credit_months_loan_z")
+
+# calculamos la matriz de correlación sólo para estas variables
+cor_matrix <- cor(credit[vars_de_interesI])
+
+# visualizamos la matriz de correlación
+ggcorrplot(cor_matrix, title = "Matriz de correlacion de variables I " )
+
+```
+
+And we easily observe that there is a correlation between the amortisation period and the amount, which is also very logical.
+We repeat the same strategy to study the relationship of another set of variables:
+
+```{r heat_mapII, echo=TRUE, message=FALSE, warning=FALSE}
+# seleccionamos las variables de interés (relación default y cualificación laboral)
+vars_de_interesII <- c("default", "job_mang_self", "job_skill_emp", "job_unemp", "job_unskill")
+
+# calculamos la matriz de correlación sólo para estas variables
+cor_matrix <- cor(credit[vars_de_interesII])
+
+# visualizamos la matriz de correlación
+ggcorrplot(cor_matrix, title = "Matriz de correlacion de variables II" )
+```
+
+There does not seem to be any correlation between the type of job qualification and default or non-payment.
+
+We could repeat some graphs by changing variables, but at this point we consider finalising the visualisation of the data using different functions that return a numerical format:
+
+```{r str_viz, echo=TRUE, message=FALSE, warning=FALSE}
+# visualizamos resumen de los datos
+
+# Usando un str()
+str(credit)
+# usando summary
+summary(credit)
+```
+
+And finally, on the number of defaults:
+
+```{r media_default, echo=TRUE, message=FALSE, }
+
+# Partiendo de un N o muestra de 1000 créditos concedidos:
+# Suma de créditos malos
+total_defaults <- sum(credit$default == 1)
+
+# Créditos buenos
+total_no_defaults <- sum(credit$default == 0)
+
+# media de créditos con problemas
+avg_defaults <- mean(credit$default == 1)
+
+print(paste("Numero de impagos: ", total_defaults))
+print(paste("Numero de creditos abonados: ", total_no_defaults))
+print(paste("Media de creditos con impagos: ", avg_defaults))
+```
+
+At this point we finalise the visualisation of the data and proceed with the decision tree.
+
+# Phase 3. Data Preparation for the Model
+
+In order to evaluate the decision tree, it is necessary to split the dataset into a training set and a test set.
+We will use a 2/3 ratio for the training set and a 1/3 ratio for the test set.
+
+Based on the example provided by the teaching team regarding the decision tree, we apply the model to the dataset we are working with.
+**The target variable** is the indicator of whether the credit was paid or defaulted, 'default'.
+
+```{r libreriasIII,echo=FALSE, message=FALSE, warning=FALSE }
+#Carga de librerías en segundo plano
+if(!require('caret')) install.packages('caret'); library('caret')
+if(!require('pROC')) install.packages('pROC'); library('pROC')
+```
+
+```{r conjuntos_arbol, echo=TRUE, message=FALSE, warning=FALSE}
+# El contador de semillas para replicabilidad
+set.seed(777)
+
+# Creamos un vector
+y <- credit[, 7]
+
+# y un df
+X <- credit[, 1:41]
+
+# Eliminamos la variable a predecir
+X$default <- NULL
+```
+
+Reviewing an extensive literature, many authors refer to a method that would consist of using the results of supervised learning - decision tree - after an unsupervised learning step - clustering.
+This way, we will verify and compare the assignment made by both algorithms.
+However, we will use the algorithm to predict population growth and gross domestic product.
+
+First, we will separate the data for the training and test set:
+
+```{r conjuntos, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Definimos la proporción de datos para el conjunto de entrenamiento
+train_ratio <- 2/3
+
+# Creamos los índices de partición
+index <- createDataPartition(y, p = train_ratio, list = FALSE)
+
+# Crear el conjunto de entrenamiento
+trainX <- X[index,]
+trainy <- y[index]
+
+# Crear el conjunto de prueba
+testX <- X[-index,]
+testy <- y[-index]
+```
+
+We will carry out an analysis of the data to ensure that the data is not skewed in any of the cases:
+
+```{r anal_sets, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Set de entrenamiento X
+summary(trainX)
+
+# Variable objetivo entrenamiento
+glimpse(trainy)
+
+# set de pruebas
+summary(testX)
+
+# variable objetivo pruebas
+glimpse(testy)
+```
+
+Although the binary format is not the most suitable for displaying data, we did not observe any serious differences.
+
+# Phase 4. Model creation
+
+We create the decision tree using the C5.0 algorithm:
+
+```{r modeloI, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Creamos el Arbol de decision
+trainy <- as.factor(trainy) # convertimos en factor
+model <- C50::C5.0(trainX, trainy,rules=TRUE )
+summary(model)
+```
+
+The C5.0 algorithm was implemented to train a decision tree model using a dataset of 667 cases, each containing 41 attributes or variables.
+The model generated a total of 19 rules based on this training data.
+
+Among these rules, we want to highlight some of particular relevance, especially considering the lift indicators or the relationship between the results obtained with and without a prediction model:
+
+The first rule of the model states that if the savings_bal_unknown feature is greater than 0, then the predicted classification will correspond to class 0.
+This rule applied to 125 training cases, although it resulted in 19 errors, resulting in a 20% improvement compared to random prediction, indicated by the lift coefficient of 1.2.
+
+Similarly, the second rule states that if savings_bal_unknown is less than or equal to 0, the predicted class will again be 0.
+This rule applied to 542 cases, with 170 errors, resulting in a lift of 1.0.
+
+The model shows a pattern of multiple conditions leading to a predicted classification.
+This is the case with the third rule.
+With a lift of 3.1, it involves a total of seven conditions, including employment_length = 4, installment_rate \> 2, and telephone \<= 0.
+
+The analysis of the training data revealed that the decision tree model has an error rate of 13.2%, with a total of 88 misclassifications out of 667 cases.
+According to the confusion matrix of the model, it correctly classified 443 cases as class 0 and 136 cases as class 1.
+However, there were also cases of misclassification: 35 cases were classified as class 0 when they actually belonged to class 1, and 53 cases were classified as class 1 when they actually belonged to class 0.
+
+Furthermore, we observed the frequency with which each attribute was included in the model's rules.
+The savings_bal_unknown attribute was the most used, as it was included in all the model's rules.
+This finding suggests that this particular attribute plays a crucial role in the model's decisions.
+Despite the complexity of the training data, the C5.0 algorithm was able to generate the model in a practically insignificant time, clearly highlighting its virtues.
+
+We can state that the results of the model on the training data indicate satisfactory performance, pending validation with an independent test dataset to study its generalization ability, preventing an expected overfitting effect to the training data.
+
+We continue by displaying the obtained tree:
+
+```{r arbolI, echo=TRUE, message=FALSE, warning=FALSE}
+
+# visualizamos el arbol del modelo (no termina de finalizar el codigo)
+# model <- C50::C5.0(trainX, trainy)
+# plot(model,gp = gpar(fontsize = 9.5))
+```
+
+## Model validation
+
+We proceed to check the quality by predicting the default for the test data:
+
+```{r prediccion, echo=TRUE, message=FALSE, warning=FALSE}
+#Predecimos el modelo
+
+predicted_model <- predict( model, testX, type="class" )
+print(sprintf("La precisión del árbol es: %.4f %%",100*sum(predicted_model == testy) / length(predicted_model)))
+```
+
+The accuracy of the model on the test set is approximately 69.37%.
+The model has correctly classified 69.37% of the cases in the test dataset.
+A 50% accuracy would be equivalent to random guessing, so it is only about 19% better than a random binomial model.
+Accuracy is just one performance metric and can be misleading in certain cases, such as when classes are imbalanced, although we do not believe this is the case.
+Therefore, we consider other performance metrics such as:
+
+\- Area Under the ROC Curve (AUC-ROC): It plots the true positive rate (sensitivity) against the false positive rate (1 - specificity) for different classification thresholds.
+A perfect model will have an AUC-ROC of 1, while a random model will have an AUC-ROC of 0.5.
+
+\- Sensitivity: It is the proportion of true positives (TP) among the sum of true positives (TP) and false negatives (FN).
+It indicates the percentage of positive classes that were correctly identified.
+
+\- Specificity: It is the proportion of true negatives (TN) among the sum of true negatives (TN) and false positives (FP).
+It indicates the percentage of negative classes that were correctly identified.
+
+\- Precision: It is the proportion of true positives (TP) among the sum of true positives (TP) and false positives (FP).
+It indicates the percentage of positive predictions that were correct.
+
+\- F1 Score: It combines precision and recall.
+It is especially useful when dealing with an unequal class distribution.
+
+```{r curva_ROC, echo=TRUE, message=FALSE, warning=FALSE}
+
+
+# Creamos las predicciones de las probabilidades con el modelo
+prob_pred <- predict(model, newdata = testX, type = "prob") # comparamos resultados con el modelo
+
+# Calculamos la curva ROC
+roc_obj <- roc(testy, prob_pred[,2])
+
+# Visualizamos la curva ROC
+plot(roc_obj, main="Curva ROC")
+
+# Calculamos el área bajo la curva ROC
+auc(roc_obj)
+
+# Calcular sensibilidad y especificidad 
+coords(roc_obj, "best")
+
+# Calculamos la matriz de confusión, precisión, recall y F1-score
+
+# Creamos la matriz de confusión
+cm <- confusionMatrix(as.factor(predicted_model), as.factor(testy))
+
+# Observamos la matriz de confusión
+print(cm)
+
+# Calculamos la precisión
+precision <- cm$byClass['Pos Pred Value']
+
+# Calculamos recall
+recall <- cm$byClass['Sensitivity']
+
+# Calculamos F1-score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+```
+
+The analysis of the results based on the confusion matrix and the returned statistics can be summarized as follows:
+
+-   Confusion Matrix: The confusion matrix shows that the model correctly classified 177 instances as class 0 and 53 instances as class 1.
+    However, there are also misclassifications: the model incorrectly predicted 45 instances as class 0 when they were actually class 1, and 58 instances as class 1 when they were actually class 0.
+
+-   Accuracy: The model's accuracy is 69.07%, which means it correctly classified 69.07% of all instances.
+
+-   Kappa: The Kappa statistic is a measure of agreement or concordance between predictions and true classes, with corrections for chance.
+    The Kappa value of 0.2831 indicates low to moderate agreement.
+
+-   Sensitivity: The model's sensitivity is 79.73%, indicating that out of all instances of class 0, the model was able to correctly identify 79.73% of them.
+
+-   Specificity: The model's specificity is 47.75%, indicating that out of all instances of class 1, the model was able to correctly identify 47.75% of them.
+
+-   Pos Pred Value: It is the proportion of true positives among all positive predictions.
+    The value is 75.32%, indicating that when the model predicts class 0, it is correct 75.32% of the time.
+
+-   Neg Pred Value: It is the proportion of true negatives among all negative predictions.
+    The value is 54.08%, indicating that when the model predicts class 1, it is correct 54.08% of the time.
+
+-   Balanced Accuracy: Balanced accuracy is the arithmetic mean of sensitivity and specificity.
+    It is a useful metric when classes are imbalanced.
+    The value of 63.74% is relatively low, suggesting that the model's performance may not be balanced between the two classes.
+
+Overall, we can conclude that the model appears to be slightly biased towards predicting class 0.
+Sensitivity is high, indicating that the model is very good at detecting class 0, but specificity is relatively low, meaning that the model is not as good at detecting class 1.
+The Kappa statistic and balanced accuracy also suggest that there may be room for improving the model's performance, especially regarding the prediction of class 1.
+
+Additionally, the analysis returns the values of specificity, sensitivity, and threshold for the ROC Curve.
+These values are obtained by varying the classification threshold of the probability predictions generated by the model:
+
+-   Threshold: The default threshold is usually 0.5, but it can be varied to adjust the sensitivity and specificity of the model.
+    In this case, the reported threshold is 0.15650.
+
+-   Specificity: At the threshold of 0.15650, the specificity is 0.7072072.
+    At this threshold, the model is able to correctly identify 70.72% of the negative instances (class 0).
+
+-   Sensitivity: At the threshold of 0.15650, the sensitivity is 0.6396396.
+    This means that at this threshold, the model is able to correctly identify 63.96% of the positive instances (class 1).
+
+From all of the above and a simple analysis of the data, it is observed that there is a class imbalance.
+The previous analyses clearly showed a representation bias towards "good" credits:
+
+[1] "Number of defaults: 300"
+
+[1] "Number of successfully paid credits: 700"
+
+[1] "Average defaults per credit: 0.3"
+
+## Modifications to Model I
+
+The objective is to use a decision forest to help us with the problem of representing the labels or target variable:
+
+```{r modificaciones, echo=TRUE, message=FALSE, warning=FALSE}
+# Generams modelo alternativo
+model2 <- C50::C5.0(trainX, trainy, 
+                   trials = 10) #Numero de arboles del bosque
+
+# Trazamos el modelo (no reenderiza, emplea demasiado tiempo en mi equipo)
+#plot(model2, 
+    # trials = 1,                  # Número del árbol que queremos trazar
+    # type = "s",                  # un solo árbol
+    # main = "Árbol de Decisión",  
+    # gp = gpar(fontsize = 9.5))   
+```
+
+And we generate the rules of the model:
+
+```{r modificacion_rules, echo=TRUE, message=FALSE, warning=FALSE}
+# Generamos modelo de reglas
+model2_rules <- C50::C5.0(trainX, trainy, 
+                   trials = 10,    # Número de árboles a generar en el "bosque"
+                   rules = TRUE)   # Generamos reglas en lugar de un árbol
+
+# Visualizamos el modelo (no mostramos los resultados por no producir un pdf excesivamente grande innecesariamente)
+# print(summary(model2_rules))
+```
+
+In summary, we are going to analyse the output of the C5.0 model with boosting where 10 trials or iterations are performed:
+
+```         
+Evaluation on training data (667 cases):
+
+Trial           Rules     
+-----     ----------------
+        No      Errors
+
+   0        19   88(13.2%)
+   1        15  124(18.6%)
+   2        18  107(16.0%)
+   3        26  127(19.0%)
+   4        25   94(14.1%)
+   5        26  129(19.3%)
+   6        27  120(18.0%)
+   7        28  111(16.6%)
+   8        24  115(17.2%)
+   9        29  133(19.9%)
+boost            16( 2.4%)   <<
+
+
+       (a)   (b)    <-classified as
+      ----  ----
+       476     2    (a): class 0
+        14   175    (b): class 1
+
+
+    Attribute usage:
+
+    100.00% checking_balance_unknown
+    100.00% credit_months_loan_z
+    100.00% savings_bal_unknown
+     99.85% credit_history
+     99.40% education
+     98.95% amount_z
+     91.45% installment_plan
+     89.36% job_mang_self
+     88.46% checking_balance_lt_0
+     85.61% employment_length
+     76.61% other_debtors
+     76.01% installment_rate
+     74.36% checking_balance_gt_200
+     71.36% housing_own
+     70.76% existing_credits
+     67.62% savings_bal_lt_100
+     66.72% property_r_estate
+     66.42% property_unk_none
+     64.92% car_used
+     63.72% car_new
+     55.77% job_skill_emp
+     54.57% job_unskill
+     54.12% property_soc_savings
+     50.67% radio_tv
+     50.37% property_other
+     47.98% dependents
+     46.33% business
+     38.98% checking_balance_1_200
+     38.53% furniture
+     36.43% housing_rent
+     34.48% savings_bal_501_1000
+     31.18% telephone
+     28.64% savings_bal_101_500
+     13.04% savings_bal_gt_1000
+      7.95% repairs
+      4.20% housing_free
+      3.60% job_unemp
+
+
+Time: 0.1 secs
+```
+
+1\.
+Trial, Rules, Errors: Summary of the results for each boosting trial.
+For each trial, it shows the number of generated rules - Rules -, the number and percentage of training cases incorrectly classified - Errors -.
+At the end, the improvement margin figure is observed: boost = 2.4%.
+This represents an improvement in predictive value.
+
+2\.
+Classified as: Confusion matrix for the model's predictions on the training data.
+The matrix shows the actual classification in the rows - a and b, representing classes 0 and 1, respectively - and the predicted classification.
+472 cases correctly classified as class 0 with 2 cases incorrectly classified, and 175 cases classified as class 1 with 14 errors.
+
+3\.
+Attribute usage: Percentage of usage for each attribute in the generated rules.
+Higher values indicate that the attribute is more important for the model's decisions.
+There are attributes that play a minimal predictive role, such as:
+
+```         
+31.18%  telephone
+     28.64% savings_bal_101_500
+     13.04% savings_bal_gt_1000
+      7.95% repairs
+      4.20% housing_free
+      3.60% job_unemp
+```
+
+It is quite striking that the unemployment condition has no predictive value.
+
+4\.
+Time: The time it took to train the model.
+
+The modifications to the model have generated a considerable number of rules in each iteration, and the error rate decreases in each iteration thanks to boosting.
+Although the boosting error rate is only 2.4%, a significant improvement, it helps increase the model's accuracy to above 70%.
+It is noticeable that the error rate varies between iterations, which may indicate that the model is overfitting the training data.
+
+Now, let's analyze the model's accuracy with the test dataset:
+
+```{r precision_modII, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Analizamos nuevamente la precision del modelo:
+
+predicted_model2 <- predict( model2, testX, type="class" )
+print(sprintf("La precisión del árbol es: %.4f %%",100*sum(predicted_model2 == testy) / length(predicted_model2)))
+```
+
+We observe that the tests confirm the improvements, and as mentioned earlier, the accuracy is around 73%.
+
+But at this point, the underlying question is how to determine the best configuration for a model with so many options and parameters.
+Inexperience and lack of knowledge can lead to poor choices.
+Therefore, considering various specialized forums and reference works, I find techniques like 'Grid Search' and 'Random Search' [@tobi2018; @kjær2021; @venkatachalam2018]and Random Forest @randomf2023 to be useful.
+Let's briefly describe each of these techniques:
+
+1.  Grid Search: Traditionally used for hyperparameter optimization in machine learning. It specifies a list of values for each hyperparameter, and Grid Search evaluates the model on all possible combinations of these hyperparameter values. It is computationally expensive and does not guarantee global optimization, but it is not excessively difficult to implement. In our case, we choose @bergstra2013.
+
+```{=html}
+<!-- -->
+```
+2.  Random Search: Also a hyperparameter optimization technique. It randomly selects combinations of hyperparameters to train the model instead of exploring all possible combinations. It can be more efficient in terms of computational time compared to Grid Search, but it is more complex to implement.
+
+```{=html}
+<!-- -->
+```
+3.  Random Forest: A machine learning algorithm that uses an ensemble of decision trees to make predictions. Each tree is built using a random subset of the training data and a random subset of features at each node split. This introduces diversity among the trees and makes the resulting model more robust and less prone to overfitting compared to a single decision tree. It differs from the C5.0 algorithm, which is based on the same dataset @bergstra2012
+
+We will perform a simple implementation of Grid Search to search for the hyperparameters for our dataset and algorithm.
+
+```{r grid_search, echo=TRUE, message=FALSE, warning=FALSE}
+
+# La lista de valores de parámetros a probar, no tengo claro otros parametros, en un df
+param_list <- list(trials = c(1, 5, 10, 20, 50, 100), #!maximo 100
+                   rules = c(TRUE, FALSE)) 
+
+# La función para entrenar el modelo y calcular la precisión
+train_model_gs <- function(trials, rules) {
+    model_gs <- C5.0(trainX, trainy, trials = trials, rules = rules)
+    pred_gs <- predict(model_gs, testX)
+    accuracy_gs <- sum(pred_gs == testy) / length(testy)
+    return(accuracy_gs)
+}
+
+# Búsqueda en cuadrícula
+best_accuracy <- 0
+best_params <- NULL
+
+for (trials in param_list$trials) {
+    for (rules in param_list$rules) {
+        accuracy_gs <- train_model_gs(trials, rules)
+        if (accuracy_gs > best_accuracy) {
+            best_accuracy <- accuracy_gs
+            best_params <- list(trials = trials, rules = rules)
+        }
+    }
+}
+
+print(best_params)
+```
+
+The results are not very clarifying.
+It seems clear that a higher number of iterations should provide better results.
+Likewise, when setting "rules = TRUE," the results are presented as a set of rules in the same format as we have seen before, and if we set it to 'FALSE,' decision trees will be presented.
+In any case, let's perform one final test:
+
+```{r gridsearch_model, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Generamos nuevo modelo de reglas y arbol
+model3_rules <- C50::C5.0(trainX, trainy, 
+                   trials = 100,    # Número de árboles a generar en el "bosque"
+                   rules = FALSE)   # Generamos reglas en lugar de un árbol
+
+# Visualizamos el modelo (no mostramos los resultados por no producir un pdf excesivamente grande innecesariamente)
+# print(summary(model3_rules))
+```
+
+And we note that the results do not imply evolution of the improved model we visualised earlier:
+
+```         
+Evaluation on training data (667 cases):
+
+Trial       Decision Tree   
+-----     ----------------  
+      Size      Errors  
+
+   0        59   77(11.5%)
+   1        44  102(15.3%)
+   2        54  106(15.9%)
+   3        46  124(18.6%)
+   4        59  116(17.4%)
+   5        50  126(18.9%)
+   6        44   92(13.8%)
+   7        51  126(18.9%)
+   8        54  111(16.6%)
+   9        57  101(15.1%)
+  10        48  106(15.9%)
+  11        73  128(19.2%)
+  12        54   99(14.8%)
+  13        58  113(16.9%)
+  14        51   94(14.1%)
+  15        52  118(17.7%)
+  16        50  109(16.3%)
+  17        51  104(15.6%)
+  18        61  113(16.9%)
+  19        63  131(19.6%)
+  20        53  101(15.1%)
+  21        51  121(18.1%)
+  22        48  107(16.0%)
+  23        61  107(16.0%)
+  24        54  107(16.0%)
+  25        40  127(19.0%)
+  26        52  112(16.8%)
+  27        65  114(17.1%)
+  28        54  120(18.0%)
+  29        46   97(14.5%)
+  30        58  121(18.1%)
+  31        53  130(19.5%)
+  32        46  130(19.5%)
+  33        53   87(13.0%)
+  34        59  118(17.7%)
+  35        46   95(14.2%)
+  36        73   97(14.5%)
+  37        55  147(22.0%)
+  38        43  107(16.0%)
+  39        47  110(16.5%)
+  40        66  114(17.1%)
+  41        54  125(18.7%)
+  42        66  103(15.4%)
+  43        57  113(16.9%)
+  44        50   97(14.5%)
+  45        46  107(16.0%)
+  46        57  123(18.4%)
+  47        61   99(14.8%)
+  48        48  139(20.8%)
+  49        69  110(16.5%)
+  50        46  124(18.6%)
+  51        65  102(15.3%)
+  52        56  116(17.4%)
+  53        51  102(15.3%)
+  54        65   94(14.1%)
+  55        60  100(15.0%)
+  56        57  118(17.7%)
+  57        65  122(18.3%)
+  58        66   87(13.0%)
+  59        54  119(17.8%)
+  60        51  127(19.0%)
+  61        49  115(17.2%)
+  62        51  114(17.1%)
+  63        56  113(16.9%)
+  64        57  133(19.9%)
+  65        63  118(17.7%)
+  66        60  101(15.1%)
+  67        57  102(15.3%)
+  68        54  108(16.2%)
+  69        53  104(15.6%)
+  70        59  119(17.8%)
+  71        52  105(15.7%)
+  72        44  157(23.5%)
+  73        38  120(18.0%)
+  74        52  123(18.4%)
+  75        55   93(13.9%)
+  76        52  144(21.6%)
+  77        51  116(17.4%)
+  78        62  103(15.4%)
+  79        63  115(17.2%)
+  80        52  100(15.0%)
+  81        56  103(15.4%)
+  82        65  109(16.3%)
+  83        48  110(16.5%)
+  84        55  111(16.6%)
+  85        55  124(18.6%)
+  86        63  114(17.1%)
+  87        57   90(13.5%)
+  88        48  141(21.1%)
+  89        51  108(16.2%)
+  90        54  113(16.9%)
+  91        62  117(17.5%)
+  92        45  109(16.3%)
+  93        60  122(18.3%)
+  94        63  112(16.8%)
+  95        59  125(18.7%)
+  96        50  129(19.3%)
+  97        50  112(16.8%)
+  98        57  104(15.6%)
+  99        54  102(15.3%)
+boost             0( 0.0%)   <<
+
+
+       (a)   (b)    <-classified as
+      ----  ----
+       478          (a): class 0
+             189    (b): class 1
+
+
+    Attribute usage:
+
+    100.00% credit_history
+    100.00% employment_length
+    100.00% installment_rate
+    100.00% other_debtors
+    100.00% installment_plan
+    100.00% existing_credits
+    100.00% dependents
+    100.00% checking_balance_lt_0
+    100.00% checking_balance_unknown
+    100.00% credit_months_loan_z
+    100.00% business
+    100.00% car_used
+    100.00% education
+    100.00% amount_z
+    100.00% savings_bal_lt_100
+    100.00% savings_bal_101_500
+    100.00% savings_bal_501_1000
+    100.00% savings_bal_unknown
+    100.00% property_r_estate
+    100.00% property_unk_none
+    100.00% housing_rent
+    100.00% job_mang_self
+     99.70% furniture
+     99.55% car_new
+     99.55% job_unskill
+     99.40% housing_free
+     98.80% housing_own
+     98.65% telephone
+     98.20% checking_balance_gt_200
+     98.20% radio_tv
+     98.05% property_soc_savings
+     94.75% job_skill_emp
+     94.15% savings_bal_gt_1000
+     87.71% property_other
+     83.96% checking_balance_1_200
+     73.31% job_unemp
+     71.96% repairs
+     38.38% others
+     18.14% domestic_appliances
+      9.75% retraining
+
+
+Time: 0.8 secs
+```
+
+We continue to create a model based on 'Random Forest':
+
+```{r radom_forest, echo=TRUE, message=FALSE, warning=FALSE}
+
+
+# reagrupamos el dataframe completo para el entrenamiento, incluyendo la variable objetivo
+train <- cbind(trainX, default=trainy)
+
+# Entrenamos el modelo de bosque aleatorio
+forest <- randomForest(default ~ ., data=train, importance=TRUE, ntree=2000, mtry=5)
+
+# predicciones sobre el conjunto de prueba
+predictions <- predict(forest, newdata = testX)
+
+# Calculamos la precisión teniendo en cuenta el vector con los resultados de default
+accuracy <- sum(predictions == testy) / length(testy) # sumamos los resultados que coinciden y dividimos por el temanyo del vector testy
+
+print(sprintf("La precisión del Random Forest es: %.4f %%", 100 * accuracy))
+
+```
+
+We observe that the use of this algorithm improves the results of C5.0.
+We can also access the importance of the variables, as the algorithm calculates it:
+
+```{r importance, echo=TRUE, message=FALSE, warning=FALSE}
+
+# Importancia de las variables (Importance= TRUE)
+importance(forest)
+```
+
+And the accuracy of the model could be improved by modifying the parameters related to the number of trees ntree as well as the number of variables to be considered in each division @fischetti2015
+
+We conclude with a brief report of the results.
+
+# Phase 5. Evaluation
+
+## Title:
+
+"Prediction Model for Credit Default using Decision Trees and Random Forests"
+
+## Abstract:
+
+Based on data from 1,000 German bank customers in 1994, we developed a predictive model for credit default.
+Using decision tree and random forest techniques, the model achieved an accuracy of 69.1% on the test data, with potential improvement to approximately 73% by adjusting parameters.
+We gained insights into the factors that most influence the probability of default.
+
+## 1. Introduction
+
+This report presents an analysis of a dataset of 1,000 bank credits in Germany in 1994, with the aim of predicting whether a credit will be repaid or not.
+The model is based on decision tree and random forest methods.
+
+## 2. Methods
+
+The credit data was divided into training and test sets, with 2/3 of the data for training and 1/3 for testing.
+The predictive model was developed using the C5.0 library in R, which generates a set of rules from a decision tree or random forest.
+
+## 3. Results
+
+The C5.0 model achieved an accuracy of 69.1% on the test set, with improvement to 72.6727% when using the random forest method.
+The confusion matrix indicates that the model has a sensitivity of 79.73% and a specificity of 47.75%.
+The Kappa value is 0.2831, indicating moderate agreement between the model's predictions and the actual values.
+
+The ROC curve analysis reveals an Area Under the Curve (AUC) of 0.707, indicating acceptable model performance.
+Analysis of classification thresholds suggests that a threshold of 0.156 maximizes the true positive rate and minimizes the false positive rate.
+
+The model's accuracy improved with boosting techniques, reducing the error rate to 2.4%.
+Analysis of variable importance indicates that the most relevant variables for prediction are "checking_balance_unknown," "credit_months_loan_z," and "savings_bal_unknown."
+
+## 4. Discussion
+
+The model demonstrates acceptable performance in predicting credit defaults, although there appears to be room for improvement based on the data.
+Specifically, the model shows high sensitivity but moderate specificity, indicating that it is more effective at identifying credits that will be repaid than those that will not.
+
+Considering the nature of the dataset and the target variable, we observe that it is divided exactly into 300 default credits and 700 paid credits.
+This information, along with the observation of many dataset characteristics, supports the hypothesis that the data was prepared for data science methodologies.
+By removing numerous variables such as marital status, age, foreign worker status, and years of residence, we may have eliminated important information that could have improved the model's results and predictive capacity.
+
+Additionally, analysis of the rules generated by the model indicates that certain financial characteristics, such as checking account balance and loan duration, are key factors in the decision of whether a credit will be repaid or not, which aligns with previous observations and common sense.
+
+## 5. Conclusions
+
+In practical terms, predicting the viability of granting a credit or predicting its default based on 1994 data has no value beyond academic objectives.
+Therefore, in this case, we will analyze the use of techniques and methodologies within the curriculum.
+
+In that sense, we can say that this work serves as evidence that decision trees and random forests can be effective tools for predicting concepts that need to be anticipated in real life.
+In the referenced case, it is also worth noting the importance of optimizing model performance through techniques such as parameter tuning and boosting.
+
+# INTELLECTUAL PROPERTY
+
+Fragments of code from all the exercises and practices carried out throughout the semester in the subject have been used, as well as from the following works:
+
+Abedin, J., & Mittal, H. V. (2014).
+R Graphs Cookbook Second Edition.
+Packt Publishing Ltd.
+FitBit Fitness Tracker Data.
+(n.d.).
+Retrieved April 30, 2023, from <https://www.kaggle.com/datasets/arashnic/fitbit>
+
+Fischetti, T.
+(2015).
+Data analysis with R: Load, wrangle, and analyze your data using the world's most powerful statistical programming language.
+Packt Publishing.
+Gohil, A.
+(2015).
+R data Visualization cookbook.
+Packt Publishing Ltd.
+
+Google Data Analytics Capstone: Complete a Case Study - Learn about capstone basics - Week 1.
+(n.d.).
+Coursera.
+Retrieved April 30, 2023, from <https://www.coursera.org/learn/google-data-analytics-capstone/home/welcome>
+
+# REFERENCES
