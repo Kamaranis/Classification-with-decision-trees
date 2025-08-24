@@ -85,7 +85,7 @@ _
 
 ## 👤 Author
 
-**[Tu Nombre]**
+**Antonio Barrera Mora**
 
-*   **LinkedIn:** [Tu Perfil de LinkedIn]
+*   **LinkedIn:** https://www.linkedin.com/in/anbamo/
 *   **GitHub:** @Kamaranis
