@@ -67,12 +67,7 @@ Figure 2: *Default rate by credit purpose*
 
 **Final Model Performance:**
 
-| Metric | Test Set Score |
-| :--- | :---: |
-| **Accuracy** | 0.XX |
-| **Precision (Class 1)**| 0.XX |
-| **Recall (Class 1)** | 0.XX |
-| **F1-Score (Class 1)** | 0.XX |
+![alt text](image-3.png)
 
 **Confusion Matrix:**
 
